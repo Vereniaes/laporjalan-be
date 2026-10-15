@@ -15,6 +15,7 @@ import healthRoutes from './routes/healthRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
 import cctvRoutes from './routes/cctvRoutes.js';
 import trafficRoutes from './routes/trafficRoutes.js';
+import placesRoutes from './routes/placesRoutes.js';
 
 export const app = express();
 
@@ -31,6 +32,7 @@ app.use('/health', healthRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/cctv', cctvRoutes);
 app.use('/api/traffic', trafficRoutes);
+app.use('/api/places', placesRoutes);
 
 // root route info
 app.get('/', (req: Request, res: Response) => {

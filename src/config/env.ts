@@ -15,5 +15,6 @@ export const ENV = {
   MONGODB_URI: process.env.MONGODB_URI || '',
   GCP_PROJECT_ID: process.env.GCP_PROJECT_ID || '',
   GCS_BUCKET_NAME: process.env.GCS_BUCKET_NAME || '',
-  CORS_ORIGIN: process.env.CORS_ORIGIN || '*'
+  CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
+  GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY || ''
 };
