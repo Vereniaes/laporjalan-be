@@ -12,6 +12,7 @@ dotenv.config();
 export const ENV = {
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 5000,
   NODE_ENV: process.env.NODE_ENV || 'development',
+  PUBLIC_REPORTS_ONLY: process.env.PUBLIC_REPORTS_ONLY === 'true',
   MONGODB_URI: process.env.MONGODB_URI || '',
   GCP_PROJECT_ID: process.env.GCP_PROJECT_ID || '',
   GCS_BUCKET_NAME: process.env.GCS_BUCKET_NAME || '',

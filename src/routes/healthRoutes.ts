@@ -7,6 +7,7 @@ Todo:
 
 import { Router } from 'express';
 import mongoose from 'mongoose';
+import { ENV } from '../config/env.js';
 
 const router = Router();
 
@@ -17,7 +18,8 @@ router.get('/', (req, res) => {
     service: 'laporjalan-be',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-    database: dbStatus
+    mode: ENV.PUBLIC_REPORTS_ONLY ? 'public-reports' : 'legacy',
+    database: ENV.PUBLIC_REPORTS_ONLY ? 'not-used' : dbStatus
   });
 });
 

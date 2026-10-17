@@ -80,12 +80,12 @@ async function initDatabase() {
 
 // mulai server
 async function startServer() {
-  await initDatabase();
+  if (!ENV.PUBLIC_REPORTS_ONLY) await initDatabase();
 
   const server = app.listen(ENV.PORT, '0.0.0.0', () => {
     console.log(`[LaporJalan Backend] Berjalan aktif di http://0.0.0.0:${ENV.PORT}`);
     console.log(`[LaporJalan Backend] Endpoint Health: http://localhost:${ENV.PORT}/health`);
-    console.log(`[LaporJalan Backend] Endpoint Laporan: http://localhost:${ENV.PORT}/api/reports`);
+    console.log(`[LaporJalan Backend] Endpoint Laporan: http://localhost:${ENV.PORT}/api/${ENV.PUBLIC_REPORTS_ONLY ? 'public-reports' : 'reports'}`);
   });
 
   // graceful shutdown buat container cloud run

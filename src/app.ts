@@ -16,6 +16,7 @@ import reportRoutes from './routes/reportRoutes.js';
 import cctvRoutes from './routes/cctvRoutes.js';
 import trafficRoutes from './routes/trafficRoutes.js';
 import placesRoutes from './routes/placesRoutes.js';
+import publicReportRoutes from './routes/publicReportRoutes.js';
 
 export const app = express();
 
@@ -25,21 +26,26 @@ app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // serve folder uploads lokal
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+if (!ENV.PUBLIC_REPORTS_ONLY) app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // routes
 app.use('/health', healthRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/cctv', cctvRoutes);
-app.use('/api/traffic', trafficRoutes);
-app.use('/api/places', placesRoutes);
+app.use('/api/public-reports', publicReportRoutes);
+if (!ENV.PUBLIC_REPORTS_ONLY) {
+  app.use('/api/reports', reportRoutes);
+  app.use('/api/cctv', cctvRoutes);
+  app.use('/api/traffic', trafficRoutes);
+  app.use('/api/places', placesRoutes);
+}
 
 // root route info
 app.get('/', (req: Request, res: Response) => {
   res.json({
-    message: 'LaporJalan API - Cloud Run & MongoDB Service',
-    docs: {
+    message: 'LaporJalan API',
+    mode: ENV.PUBLIC_REPORTS_ONLY ? 'public-reports' : 'legacy',
+    docs: ENV.PUBLIC_REPORTS_ONLY ? { health: '/health', publicReports: '/api/public-reports' } : {
       health: '/health',
+      publicReports: '/api/public-reports',
       reports: '/api/reports',
       cctv: '/api/cctv',
       traffic: '/api/traffic'

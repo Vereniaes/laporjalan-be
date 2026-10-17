@@ -5,4 +5,7 @@ npm-debug.log
 .gitignore
 .env
 .env.local
+.env.*
+tests
+knowledge
 uploads
