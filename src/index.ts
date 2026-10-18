@@ -7,6 +7,8 @@ Todo:
 -> handle graceful shutdown
 */
 
+import { initCommunity } from './community/db.js';
+import { appOrigin } from './community/auth.js';
 import mongoose from 'mongoose';
 import { app } from './app.js';
 import { ENV } from './config/env.js';
@@ -80,7 +82,12 @@ async function initDatabase() {
 
 // mulai server
 async function startServer() {
-  if (!ENV.PUBLIC_REPORTS_ONLY) await initDatabase();
+  if (ENV.COMMUNITY_REPORTS_ENABLED) {
+    if (!ENV.PUBLIC_REPORTS_ONLY || !ENV.MONGODB_URI) throw new Error('Community configuration missing');
+    appOrigin();
+    await mongoose.connect(ENV.MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
+    await initCommunity();
+  } else if (!ENV.PUBLIC_REPORTS_ONLY) await initDatabase();
 
   const server = app.listen(ENV.PORT, '0.0.0.0', () => {
     console.log(`[LaporJalan Backend] Berjalan aktif di http://0.0.0.0:${ENV.PORT}`);
@@ -103,4 +110,4 @@ async function startServer() {
   process.on('SIGINT', shutdown);
 }
 
-startServer();
+startServer().catch(() => { console.error('[Server] Configuration or database unavailable'); process.exit(1); });

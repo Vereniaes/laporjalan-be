@@ -19,7 +19,8 @@ router.get('/', (req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     mode: ENV.PUBLIC_REPORTS_ONLY ? 'public-reports' : 'legacy',
-    database: ENV.PUBLIC_REPORTS_ONLY ? 'not-used' : dbStatus
+    community: ENV.COMMUNITY_REPORTS_ENABLED,
+    database: ENV.COMMUNITY_REPORTS_ENABLED ? (mongoose.connection.readyState === 1 ? 'connected' : 'disconnected') : ENV.PUBLIC_REPORTS_ONLY ? 'not-used' : dbStatus
   });
 });
 
