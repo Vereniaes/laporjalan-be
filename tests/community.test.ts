@@ -88,6 +88,34 @@ test('community API preserves ownership, persistence and actual observations', a
       const results = await Promise.all([json('/auth/exchange', { token: lastLink }), json('/auth/exchange', { token: lastLink })]);
       assert.deepEqual(results.map(r => r.status).sort(), [200, 401]);
     });
+    await t.test('password registration and login: hashed, no takeover, one answer for unknown email or wrong password', async () => {
+      const email = `password-${randomUUID()}@example.test`;
+      assert.equal((await json('/auth/register', { email, password: 'pendek' })).status, 400);
+      assert.equal((await json('/auth/register', { email: 'invalid', password: 'kata-sandi-uji' })).status, 400);
+      assert.equal((await json('/auth/register', { email, password: 'kata-sandi-uji' }, undefined, 'https://untrusted.example')).status, 403);
+      const created = await json('/auth/register', { email: email.toUpperCase(), password: 'kata-sandi-uji', displayName: 'Nama Uji' });
+      assert.equal(created.status, 201);
+      const account = await created.json();
+      assert.equal(account.user.email, email); assert.equal(account.user.displayName, 'Nama Uji'); assert.equal(JSON.stringify(account).includes('passwordHash'), false);
+      const stored = await db.collection<any>('citizen_accounts').findOne({ email });
+      assert.match(stored.passwordHash, /^scrypt\$/); assert.equal(stored.passwordHash.includes('kata-sandi-uji'), false);
+      assert.equal((await nativeFetch(base + '/auth/session', { headers: { Authorization: 'Bearer ' + account.token } })).status, 200);
+      // an existing email is never taken over, whether it came from registration or from an email link
+      assert.equal((await json('/auth/register', { email, password: 'kata-sandi-lain' })).status, 409);
+      assert.equal((await json('/auth/register', { email: 'owner@example.test', password: 'kata-sandi-uji' })).status, 409);
+      const wrong = await json('/auth/login', { email, password: 'kata-sandi-salah' });
+      const unknown = await json('/auth/login', { email: `nobody-${randomUUID()}@example.test`, password: 'kata-sandi-uji' });
+      const linkOnly = await json('/auth/login', { email: 'owner@example.test', password: 'kata-sandi-uji' });
+      assert.deepEqual([wrong.status, unknown.status, linkOnly.status], [401, 401, 401]);
+      assert.equal((await wrong.json()).message, (await unknown.json()).message);
+      const signedIn = await json('/auth/login', { email, password: 'kata-sandi-uji' });
+      assert.equal(signedIn.status, 200);
+      const session = await signedIn.json();
+      assert.notEqual(session.token, account.token); assert.equal(session.user.id, account.user.id);
+      const created2 = await send('/reports', session.token, { ...input, requestId: randomUUID() });
+      assert.equal(created2.status, 201);
+      await db.collection('citizen_reports').deleteOne({ _id: (await created2.json()).id });
+    });
     await t.test('invalid location, consent, forged category and disguised media are rejected', async () => {
       for (const override of [{ lng: 999 }, { lat: '' }, { category: '__proto__' }, { publicConsent: false }, { title: '' }]) {
         assert.equal((await send('/reports', owner.token, { ...input, ...override })).status, 400);
@@ -150,14 +178,14 @@ test('community API preserves ownership, persistence and actual observations', a
       const { ENV } = await import('../src/config/env.js');
       const original = { enabled: ENV.COMMUNITY_REPORTS_ENABLED, key: ENV.RESEND_API_KEY, origin: ENV.APP_ORIGIN };
       try {
-        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: true, write: true, login: true, reason: null, analysis: { available: false, reason: 'model_disabled' } });
+        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: true, write: true, login: true, emailLink: true, reason: null, analysis: { available: false, reason: 'model_disabled' } });
         ENV.COMMUNITY_REPORTS_ENABLED = false;
-        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: false, write: false, login: false, reason: 'disabled', analysis: { available: false, reason: 'model_disabled' } });
+        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: false, write: false, login: false, emailLink: false, reason: 'disabled', analysis: { available: false, reason: 'model_disabled' } });
         assert.equal((await nativeFetch(base + '/reports')).status, 503);
         ENV.COMMUNITY_REPORTS_ENABLED = true; ENV.RESEND_API_KEY = '';
-        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: true, write: true, login: false, reason: 'email_unconfigured', analysis: { available: false, reason: 'model_disabled' } });
+        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: true, write: true, login: true, emailLink: false, reason: null, analysis: { available: false, reason: 'model_disabled' } });
         ENV.RESEND_API_KEY = original.key; ENV.APP_ORIGIN = 'https://example.test/invalid';
-        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: true, write: false, login: false, reason: 'origin_unconfigured', analysis: { available: false, reason: 'model_disabled' } });
+        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: true, write: false, login: false, emailLink: false, reason: 'origin_unconfigured', analysis: { available: false, reason: 'model_disabled' } });
         assert.equal((await nativeFetch(base + '/auth/session', { headers: { Authorization: 'Bearer ' + owner.token } })).status, 200);
         assert.equal((await patch('/auth/profile', { displayName: 'Unavailable write' }, owner.token)).status, 503);
       } finally { ENV.COMMUNITY_REPORTS_ENABLED = original.enabled; ENV.RESEND_API_KEY = original.key; ENV.APP_ORIGIN = original.origin; }
@@ -330,7 +358,7 @@ test('community API preserves ownership, persistence and actual observations', a
     });
     await t.test('disconnect never claims writes were saved; reconnect retains reports', async () => {
       await mongoose.disconnect();
-      assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: false, write: false, login: false, reason: 'storage_unavailable', analysis: { available: false, reason: 'model_disabled' } });
+      assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: false, write: false, login: false, emailLink: false, reason: 'storage_unavailable', analysis: { available: false, reason: 'model_disabled' } });
       assert.equal((await send('/reports', owner.token, { ...input, requestId: randomUUID() })).status, 503);
       await mongoose.connect(dbUri);
       const restored = await nativeFetch(base + `/reports/${report.id}`).then(r => r.json());

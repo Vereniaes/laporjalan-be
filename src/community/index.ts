@@ -8,6 +8,7 @@ import { appOrigin, authRoutes } from './auth.js';
 import { communityError, database, InputError } from './db.js';
 import { communityCapabilities } from './capabilities.js';
 import { createReportRoutes } from './reports.js';
+import { adminRoutes } from './admin.js';
 import { createAnalysisRoutes, disabledAnalysis, validateAnalysisPolicy, type AnalysisPolicy } from './analyses.js';
 
 export function createCommunityRouter(analysisPolicy: AnalysisPolicy = disabledAnalysis) {
@@ -30,6 +31,7 @@ router.use((req, res, next) => {
   } catch (error) { next(error); }
 });
 router.use('/auth', authRoutes);
+router.use('/admin', adminRoutes);
 router.use('/reports/:id/analyses', createAnalysisRoutes(analysisPolicy));
 router.use('/reports', createReportRoutes(analysisPolicy));
 router.use(communityError);

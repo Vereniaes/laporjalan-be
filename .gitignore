@@ -1,24 +1,29 @@
-# Dependencies
-node_modules/
+# Todo:
+# -> ignore build output, local env files, and dependencies
+# -> preserve sample configuration and tracking integrity
 
-# Production build
+# --- Dependencies & Build -----------------------------------------------------
+node_modules/
 dist/
 
-# Logs
+# --- Environment files (CRITICAL: Never commit secrets) -----------------------
+.env
+.env.*
+!.env.example
+*.local
+
+# --- Logs & Test Runs ---------------------------------------------------------
 logs/
 *.log
 npm-debug.log*
 
-# Environment variables
-.env
-.env.local
-
-# Uploads directory
+# --- Uploads & Local Media ----------------------------------------------------
 uploads/
 
-# OS / Editor
+# --- OS / Editor --------------------------------------------------------------
 .DS_Store
 .vscode/
 .idea/
 docs/
 knowledge/
+# --- end of gitignore ---------------------------------------------------------

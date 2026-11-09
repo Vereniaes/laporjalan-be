@@ -8,6 +8,7 @@ import type { AddressInfo } from 'node:net';
 
 test('public-only mode exposes metadata and health but no legacy writes', async () => {
   process.env.PUBLIC_REPORTS_ONLY = 'true';
+  process.env.COMMUNITY_REPORTS_ENABLED = 'false'; // independent of a developer .env that turns community mode on
   process.env.CORS_ORIGIN = 'https://frontend.example';
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response('[]', { headers: { 'content-type': 'application/json' } });
