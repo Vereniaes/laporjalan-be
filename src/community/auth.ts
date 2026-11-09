@@ -27,15 +27,35 @@ export async function currentAccount(req: Request) {
   return account;
 }
 
-export function appOrigin() {
-  let url: URL;
-  try { url = new URL(ENV.APP_ORIGIN); } catch { throw new InputError(503, 'Alamat aplikasi belum dikonfigurasi.'); }
-  const local = ENV.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(url.hostname);
-  if ((!local && url.protocol !== 'https:') || url.pathname !== '/' || url.search || url.hash || url.username || url.password) {
-    throw new InputError(503, 'Alamat aplikasi belum dikonfigurasi.');
-  }
-  return url.origin;
+// --- allowed origins ---
+// APP_ORIGIN may list several origins, comma-separated; the first one is used in emailed links
+const LOCAL_HOST = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\]|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})$/;
+function configuredOrigins() {
+  return ENV.APP_ORIGIN.split(',').map(value => value.trim()).filter(Boolean).map(value => {
+    let url: URL;
+    try { url = new URL(value); } catch { throw new InputError(503, 'Alamat aplikasi belum dikonfigurasi.'); }
+    const local = ENV.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(url.hostname);
+    if ((!local && url.protocol !== 'https:') || url.pathname !== '/' || url.search || url.hash || url.username || url.password) {
+      throw new InputError(503, 'Alamat aplikasi belum dikonfigurasi.');
+    }
+    return url.origin;
+  });
 }
+export function appOrigin() {
+  const [first] = configuredOrigins();
+  if (!first) throw new InputError(503, 'Alamat aplikasi belum dikonfigurasi.');
+  return first;
+}
+// Why/Note: in development the page may run on 127.0.0.1, another port (Vite moves when 3001 is taken) or the WSL/LAN address;
+//           any local address is accepted there. Production accepts only the configured origins.
+export function originAllowed(origin: string | undefined) {
+  if (!origin) return false;
+  let url: URL;
+  try { url = new URL(origin); } catch { return false; }
+  if (configuredOrigins().includes(url.origin)) return true;
+  return ENV.NODE_ENV !== 'production' && (url.protocol === 'http:' || url.protocol === 'https:') && LOCAL_HOST.test(url.hostname);
+}
+// --- end of allowed origins ---
 
 // --- passwords and sessions ---
 const derive = promisify(scrypt) as (password: string, salt: Buffer, length: number) => Promise<Buffer>;

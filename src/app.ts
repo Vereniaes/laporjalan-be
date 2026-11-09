@@ -13,12 +13,17 @@ import cctvRoutes from './routes/cctvRoutes.js';
 import trafficRoutes from './routes/trafficRoutes.js';
 import placesRoutes from './routes/placesRoutes.js';
 import communityRoutes from './community/index.js';
+import { originAllowed } from './community/auth.js';
 import publicReportRoutes from './routes/publicReportRoutes.js';
 
 // --- Express Application ------------------------------------------------------
 export const app = express();
 
-app.use(cors({ origin: ENV.CORS_ORIGIN }));
+// CORS follows the write rule: the listed origins (CORS_ORIGIN, comma-separated, or *), plus any local address in development
+// Why/Note: a page on 127.0.0.1 or another dev port could not even read /capabilities, so sign-in looked disabled
+const corsOrigins = ENV.CORS_ORIGIN.split(',').map(value => value.trim()).filter(Boolean);
+const corsAllowed = (origin: string) => { try { return originAllowed(origin); } catch { return false; } };
+app.use(cors({ origin: corsOrigins.includes('*') ? '*' : (origin, done) => done(null, !origin || corsOrigins.includes(origin) || corsAllowed(origin)) }));
 app.use('/api/community', communityRoutes);
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));

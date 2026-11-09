@@ -4,7 +4,7 @@ Todo:
 */
 import express, { Router } from 'express';
 import { ENV } from '../config/env.js';
-import { appOrigin, authRoutes } from './auth.js';
+import { appOrigin, authRoutes, originAllowed } from './auth.js';
 import { communityError, database, InputError } from './db.js';
 import { communityCapabilities } from './capabilities.js';
 import { createReportRoutes } from './reports.js';
@@ -15,9 +15,9 @@ export function createCommunityRouter(analysisPolicy: AnalysisPolicy = disabledA
 validateAnalysisPolicy(analysisPolicy);
 analysisPolicy = Object.freeze({ available: analysisPolicy.available, accountIds: Object.freeze([...analysisPolicy.accountIds]) });
 const router = Router();
-router.get('/capabilities', (_req, res) => {
+router.get('/capabilities', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  res.json(communityCapabilities(analysisPolicy));
+  res.json(communityCapabilities(analysisPolicy, req.get('Origin')));
 });
 router.use(express.json({ limit: '16kb' }));
 router.use((req, res, next) => {
@@ -25,7 +25,11 @@ router.use((req, res, next) => {
   try {
     if (!ENV.COMMUNITY_REPORTS_ENABLED) throw new InputError(503, 'Laporan warga belum diaktifkan.');
     database();
-    if (req.method !== 'GET' && req.method !== 'HEAD' && req.get('Origin') !== appOrigin()) throw new InputError(403, 'Asal permintaan tidak diizinkan.');
+    // writes need a configured origin (else 503) and a page on an allowed address (else 403); reads stay open
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      appOrigin();
+      if (!originAllowed(req.get('Origin'))) throw new InputError(403, 'Alamat halaman ini belum diizinkan server. Buka LaporJalan lewat alamat resminya.');
+    }
     res.setHeader('Cache-Control', 'no-store');
     next();
   } catch (error) { next(error); }
