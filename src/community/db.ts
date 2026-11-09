@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 
 export class InputError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  constructor(public status: number, message: string, public code?: string) { super(message); }
 }
 export const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 export function database() {
@@ -22,6 +22,12 @@ export function field(value: unknown, min: number, max: number, label: string) {
   }
   return value.trim();
 }
+export function displayName(value: unknown) {
+  if (typeof value !== 'string' || /[\p{Cc}\p{Cf}]/u.test(value)) throw new InputError(400, 'Nama tidak valid.');
+  const name = value.normalize('NFC').trim();
+  if ([...name].length > 40) throw new InputError(400, 'Nama maksimum 40 karakter.');
+  return name;
+}
 export const uuid = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 
 export async function initCommunity() {
@@ -31,6 +37,10 @@ export async function initCommunity() {
     ...['citizen_links', 'citizen_sessions', 'citizen_limits'].map(name => db.collection(name).createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })),
     db.collection('citizen_reports').createIndex({ createdAt: -1, _id: -1 }),
     db.collection('citizen_reports').createIndex({ ownerId: 1, createdAt: -1 }),
+    db.collection('citizen_analyses').createIndex({ ownerId: 1 }, { unique: true, partialFilterExpression: { active: true } }),
+    db.collection('citizen_analyses').createIndex({ ownerId: 1, requestId: 1 }, { unique: true }),
+    db.collection('citizen_analyses').createIndex({ reportId: 1, ownerId: 1, createdAt: -1, _id: -1 }),
+    db.collection('citizen_analyses').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
   ]);
 }
 
@@ -58,5 +68,6 @@ export function communityError(error: unknown, _req: Request, res: Response, _ne
   }
   const status = error instanceof InputError ? error.status : 503;
   if (!(error instanceof InputError)) console.error('[Community] Storage or service unavailable');
-  res.status(status).json({ message: error instanceof InputError ? error.message : 'Layanan belum tersedia. Silakan coba lagi.' });
+  res.status(status).json({ message: error instanceof InputError ? error.message : 'Layanan belum tersedia. Silakan coba lagi.',
+    ...(error instanceof InputError && error.code ? { code: error.code } : {}) });
 }

@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import mongoose from 'mongoose';
+import sharp from 'sharp';
 
 process.env.PUBLIC_REPORTS_ONLY = 'true';
 process.env.COMMUNITY_REPORTS_ENABLED = 'true';
@@ -43,8 +44,11 @@ test('community API preserves ownership, persistence and actual observations', a
   const json = (path: string, body: unknown, token?: string, origin = process.env.APP_ORIGIN!) => nativeFetch(base + path, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin, ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body),
   });
-  async function login(email: string) {
-    const response = await json('/auth/link', { email }); assert.equal(response.status, 202);
+  const patch = (path: string, body: unknown, token: string) => nativeFetch(base + path, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Origin: process.env.APP_ORIGIN!, Authorization: 'Bearer ' + token }, body: JSON.stringify(body),
+  });
+  async function login(email: string, returnTo = 'mine') {
+    const response = await json('/auth/link', { email, returnTo }); assert.equal(response.status, 202);
     const link = lastLink;
     const exchange = await json('/auth/exchange', { token: link }); assert.equal(exchange.status, 200);
     return { ...(await exchange.json()), link };
@@ -128,12 +132,197 @@ test('community API preserves ownership, persistence and actual observations', a
       assert.equal(response.status, 201);
       const withMedia = await response.json(), path = `/reports/${withMedia.id}/media/${withMedia.media[0].id}`;
       const full = await nativeFetch(base + path); assert.equal(full.headers.get('content-type'), 'image/png');
-      assert.deepEqual(Buffer.from(await full.arrayBuffer()), png);
+      const clean = Buffer.from(await full.arrayBuffer());
+      assert.deepEqual(await sharp(clean).raw().toBuffer(), await sharp(png).raw().toBuffer());
+      const metadata = await sharp(clean).metadata(); assert.equal(metadata.exif, undefined); assert.equal(metadata.xmp, undefined);
       const partial = await nativeFetch(base + path, { headers: { Range: 'bytes=0-9' } });
       assert.equal(partial.status, 206); assert.equal((await partial.arrayBuffer()).byteLength, 10);
       assert.equal((await nativeFetch(base + path, { headers: { Range: 'bytes=99999-' } })).status, 416);
       assert.equal((await nativeFetch(base + `/reports/${report.id}/media/${withMedia.media[0].id}`)).status, 404);
       assert.equal(await db.collection('citizen_media.files').countDocuments(), 1);
+      const storedId = new mongoose.mongo.ObjectId(withMedia.media[0].id);
+      await db.collection('citizen_media.files').updateOne({ _id: storedId }, { $unset: { 'metadata.processedVersion': '' } });
+      assert.equal((await nativeFetch(base + path)).status, 503);
+      await db.collection('citizen_media.files').updateOne({ _id: storedId }, { $set: { 'metadata.processedVersion': 1 } });
+    });
+
+    await t.test('capabilities distinguish disabled, storage and email without configuration leakage', async () => {
+      const { ENV } = await import('../src/config/env.js');
+      const original = { enabled: ENV.COMMUNITY_REPORTS_ENABLED, key: ENV.RESEND_API_KEY, origin: ENV.APP_ORIGIN };
+      try {
+        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: true, write: true, login: true, reason: null, analysis: { available: false, reason: 'model_disabled' } });
+        ENV.COMMUNITY_REPORTS_ENABLED = false;
+        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: false, write: false, login: false, reason: 'disabled', analysis: { available: false, reason: 'model_disabled' } });
+        assert.equal((await nativeFetch(base + '/reports')).status, 503);
+        ENV.COMMUNITY_REPORTS_ENABLED = true; ENV.RESEND_API_KEY = '';
+        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: true, write: true, login: false, reason: 'email_unconfigured', analysis: { available: false, reason: 'model_disabled' } });
+        ENV.RESEND_API_KEY = original.key; ENV.APP_ORIGIN = 'https://example.test/invalid';
+        assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: true, write: false, login: false, reason: 'origin_unconfigured', analysis: { available: false, reason: 'model_disabled' } });
+        assert.equal((await nativeFetch(base + '/auth/session', { headers: { Authorization: 'Bearer ' + owner.token } })).status, 200);
+        assert.equal((await patch('/auth/profile', { displayName: 'Unavailable write' }, owner.token)).status, 503);
+      } finally { ENV.COMMUNITY_REPORTS_ENABLED = original.enabled; ENV.RESEND_API_KEY = original.key; ENV.APP_ORIGIN = original.origin; }
+    });
+    await t.test('login destination survives exchange while private profile never publishes implicitly', async () => {
+      assert.equal((await json('/auth/link', { email: 'destination@example.test', returnTo: 'https://untrusted.example' })).status, 400);
+      const destination = await login('destination@example.test', report.id);
+      assert.equal(destination.returnTo, report.id);
+      const oldToken = randomBytes(32).toString('base64url');
+      await db.collection<any>('citizen_links').insertOne({ _id: createHash('sha256').update(oldToken).digest('hex'), email: 'old-link@example.test', expiresAt: new Date(Date.now() + 60000) });
+      assert.equal((await json('/auth/exchange', { token: oldToken }).then(r => r.json())).returnTo, 'mine');
+      const profile = await patch('/auth/profile', { displayName: '  Ame\u0301lie  ' }, owner.token);
+      assert.equal(profile.status, 200);
+      assert.equal((await profile.json()).user.displayName, 'Amélie');
+      assert.equal((await patch('/auth/profile', { displayName: 'a'.repeat(41) }, owner.token)).status, 400);
+      assert.equal((await patch('/auth/profile', { displayName: 'A\nB' }, owner.token)).status, 400);
+      const session = await nativeFetch(base + '/auth/session', { headers: { Authorization: 'Bearer ' + owner.token } }).then(r => r.json());
+      assert.equal(session.user.displayName, 'Amélie');
+      assert.equal((await nativeFetch(base + '/auth/session?token=' + owner.token)).status, 401);
+      assert.equal((await nativeFetch(base + '/auth/session', { headers: { Authorization: owner.token } })).status, 401);
+      const existing = await nativeFetch(base + '/reports/' + report.id).then(r => r.json());
+      assert.equal(existing.reporterName, undefined);
+      assert.equal(existing.updates[0].actor, 'Pelapor');
+      const ignored = await send('/reports', owner.token, { ...input, reporterName: 'Must remain private', nameConsent: false });
+      assert.equal(ignored.status, 200); assert.equal((await ignored.json()).reporterName, undefined);
+      assert.equal((await patch('/auth/profile', { displayName: '' }, owner.token).then(r => r.json())).user.displayName, undefined);
+    });
+    await t.test('consent, publication revisions and media withdrawals share owner-only atomic controls', async () => {
+      const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+      const creation = { ...input, requestId: randomUUID(), reporterName: '<b>Amélie</b>', nameConsent: true };
+      const response = await send('/reports', owner.token, creation, { mime: 'image/png', bytes: png });
+      assert.equal(response.status, 201);
+      let named = await response.json();
+      assert.equal(named.reporterName, '<b>Amélie</b>');
+      assert.equal(named.updates[0].actor, named.reporterName);
+      assert.equal((await send('/reports', owner.token, { ...creation, reporterName: 'Changed name' }, { mime: 'image/png', bytes: png })).status, 409);
+      const target = '/reports/' + named.id + '/publication';
+      const mediaPath = '/reports/' + named.id + '/media/' + named.media[0].id;
+      assert.equal((await nativeFetch(base + mediaPath)).headers.get('cache-control'), 'no-store');
+      const revoke = { requestId: randomUUID(), revision: named.revision, nameConsent: false };
+      assert.equal((await patch(target, revoke, stranger.token)).status, 403);
+      let result = await patch(target, revoke, owner.token); assert.equal(result.status, 200);
+      named = await result.json(); assert.equal(named.reporterName, undefined);
+      assert.equal(named.updates[0].actor, 'Pelapor');
+      assert.equal((await patch(target, revoke, owner.token)).status, 200);
+      assert.equal((await patch(target, { ...revoke, nameConsent: true, reporterName: 'Other' }, owner.token)).status, 409);
+      assert.equal((await patch(target, { requestId: randomUUID(), revision: 0, visibility: 'withdrawn' }, owner.token)).status, 409);
+      const race = await Promise.all([
+        patch(target, { requestId: randomUUID(), revision: named.revision, nameConsent: true, reporterName: 'New name' }, owner.token),
+        patch(target, { requestId: randomUUID(), revision: named.revision, visibility: 'withdrawn' }, owner.token),
+      ]);
+      assert.deepEqual(race.map(r => r.status).sort(), [200, 409]);
+      named = await nativeFetch(base + '/reports/' + named.id, { headers: { Authorization: 'Bearer ' + owner.token } }).then(r => r.json());
+      result = await patch(target, { requestId: randomUUID(), revision: named.revision, visibility: 'withdrawn' }, owner.token);
+      assert.equal(result.status, 200); named = await result.json();
+      assert.equal(named.canManage, true); assert.equal(named.canUpdate, false);
+      assert.equal((await nativeFetch(base + '/reports/' + named.id)).status, 404);
+      assert.equal((await nativeFetch(base + '/reports/' + named.id, { headers: { Authorization: 'Bearer ' + stranger.token } })).status, 404);
+      assert.equal((await nativeFetch(base + mediaPath)).status, 404);
+      assert.equal((await nativeFetch(base + mediaPath + '?token=' + owner.token)).status, 404);
+      assert.equal((await nativeFetch(base + mediaPath, { headers: { Authorization: 'Bearer ' + owner.token } })).status, 200);
+      assert.equal((await send('/reports/' + named.id + '/updates', owner.token, { requestId: randomUUID(), revision: named.revision, status: 'unchanged', note: 'Private reports cannot append observations.', publicConsent: true })).status, 409);
+      const feed = await nativeFetch(base + '/reports').then(r => r.json());
+      assert.equal(feed.reports.some((row: any) => row.id === named.id), false);
+      const mine = await nativeFetch(base + '/reports?mine=true', { headers: { Authorization: 'Bearer ' + owner.token } }).then(r => r.json());
+      assert.equal(mine.reports.some((row: any) => row.id === named.id && row.canManage), true);
+      result = await patch(target, { requestId: randomUUID(), revision: named.revision, visibility: 'public', withdrawMediaIds: [named.media[0].id, named.media[0].id] }, owner.token);
+      assert.equal(result.status, 200); named = await result.json();
+      assert.equal(named.canUpdate, true); assert.equal(named.media.length, 0);
+      assert.equal((await nativeFetch(base + mediaPath)).status, 404);
+      assert.equal((await nativeFetch(base + mediaPath, { headers: { Authorization: 'Bearer ' + owner.token } })).status, 404);
+      const privateRow = await db.collection<any>('citizen_reports').findOne({ _id: named.id });
+      assert.equal(privateRow.withdrawnMediaIds.length, 1);
+      assert.equal(privateRow.publicationAudit.length, 4);
+      assert.equal(await db.collection('citizen_media.files').countDocuments(), 2);
+      const publicText = await nativeFetch(base + '/reports/' + named.id).then(r => r.text());
+      for (const secret of ['consentAudit', 'nameConsent', 'publicationAudit', 'withdrawnMediaIds', 'fingerprint', owner.user.id, owner.user.email]) assert.equal(publicText.includes(secret), false);
+      await db.collection<any>('citizen_reports').updateOne({ _id: named.id }, { $set: { visibility: 'hidden' } });
+      assert.equal((await nativeFetch(base + '/reports/' + named.id)).status, 404);
+      assert.equal((await patch(target, { requestId: randomUUID(), revision: named.revision, visibility: 'public' }, owner.token)).status, 403);
+      assert.equal((await nativeFetch(base + '/reports/' + named.id, { headers: { Authorization: 'Bearer ' + owner.token } })).status, 200);
+      const fullAudit = Array.from({ length: 100 }, () => ({ id: randomUUID(), fingerprint: 'previous', createdAt: new Date().toISOString(), change: { nameConsent: true, reporterName: 'Previous name' } }));
+      await db.collection<any>('citizen_reports').updateOne({ _id: named.id }, {
+        $set: { publicationAudit: fullAudit, revision: 100, visibility: 'public', nameConsent: true, reporterName: 'Previous name' },
+        $unset: { withdrawnMediaIds: '' },
+      });
+      const atCapacity = { requestId: randomUUID(), revision: 100, nameConsent: false, visibility: 'withdrawn', withdrawMediaIds: [privateRow.updates[0].media[0].id] };
+      result = await patch(target, atCapacity, owner.token);
+      assert.equal(result.status, 200); named = await result.json();
+      assert.equal(named.reporterName, undefined); assert.equal(named.visibility, 'withdrawn'); assert.equal(named.media.length, 0);
+      assert.equal(named.updates[0].actor, 'Pelapor');
+      assert.equal((await patch(target, atCapacity, owner.token)).status, 200);
+      const bounded = await db.collection<any>('citizen_reports').findOne({ _id: named.id });
+      assert.equal(bounded.publicationAudit.length, 100);
+      assert.equal(bounded.publicationAudit.at(-1).id, atCapacity.requestId);
+      assert.equal(bounded.publicationAudit.some((entry: any) => entry.id === fullAudit[0].id), false);
+      assert.equal((await nativeFetch(base + mediaPath)).status, 404);
+    });
+
+    await t.test('condition snapshots persist atomically, distinguish omission/clear and never refresh from publication', async () => {
+      const author = await login('condition-owner@example.test');
+      assert.equal((await nativeFetch(base + '/reports/' + report.id).then(r => r.json())).condition, undefined);
+      const initialCondition = { kind: 'closure', observedAt: new Date(Date.now() - 25 * 60 * 60_000).toISOString(), locationConfirmed: true,
+        source: 'government', access: 'closed', geometry: { type: 'LineString', coordinates: [[106.84, -6.2], [106.8401, -6.2001]] },
+        dimensions: { method: 'measured', tool: 'meteran', lengthM: 10, widthM: 0.52, depthM: 0.075 } };
+      const creation = { ...input, requestId: randomUUID(), condition: JSON.stringify(initialCondition) };
+      assert.equal((await send('/reports', author.token, { ...creation, condition: '{invalid' })).status, 400);
+      let response = await send('/reports', author.token, creation);
+      assert.equal(response.status, 201);
+      let current = await response.json(), target = '/reports/' + current.id;
+      const canonical = { ...initialCondition, source: 'reporter' };
+      assert.deepEqual(current.condition, canonical);
+      assert.deepEqual(current.updates[0].condition, canonical);
+      assert.equal(current.condition.dimensions.widthM, 0.52); assert.equal(current.condition.dimensions.depthM, 0.075);
+      const reordered = { dimensions: { depthM: 0.075, widthM: 0.52, lengthM: 10, tool: 'meteran', method: 'measured' },
+        geometry: { coordinates: initialCondition.geometry.coordinates, type: 'LineString' }, access: 'closed',
+        source: 'reporter', locationConfirmed: true, observedAt: initialCondition.observedAt, kind: 'closure' };
+      assert.equal((await send('/reports', author.token, { ...creation, condition: JSON.stringify(reordered) })).status, 200);
+      assert.equal((await send('/reports', author.token, { ...creation, condition: JSON.stringify({ ...initialCondition, access: 'partial' }) })).status, 409);
+      const { condition: _, ...withoutCondition } = creation;
+      assert.equal((await send('/reports', author.token, withoutCondition)).status, 409);
+      const observation = { requestId: randomUUID(), revision: current.revision, status: 'unchanged', note: 'A note preserves the existing observed condition.', publicConsent: true };
+      assert.equal((await send(target + '/updates', stranger.token, { ...observation, condition: 'null' })).status, 403);
+      response = await send(target + '/updates', author.token, observation);
+      assert.equal(response.status, 201); current = await response.json();
+      assert.deepEqual(current.condition, canonical);
+      assert.equal(current.updates.at(-1).condition, undefined);
+      assert.equal((await send(target + '/updates', author.token, observation)).status, 200);
+      assert.equal((await send(target + '/updates', author.token, { ...observation, condition: 'null' })).status, 409);
+      const changedCondition = { ...initialCondition, observedAt: new Date().toISOString(), access: 'partial',
+        dimensions: { method: 'estimated', lengthM: 11 } };
+      const changed = { requestId: randomUUID(), revision: current.revision, status: 'work_observed', note: 'The reporter has observed a new condition.', publicConsent: true,
+        condition: JSON.stringify(changedCondition) };
+      response = await send(target + '/updates', author.token, changed);
+      assert.equal(response.status, 201); current = await response.json();
+      assert.deepEqual(current.condition, { ...changedCondition, source: 'reporter' });
+      assert.deepEqual(current.updates.at(-1).condition, current.condition);
+      assert.deepEqual(current.updates[0].condition, canonical);
+      assert.equal((await send(target + '/updates', author.token, { ...changed, condition: JSON.stringify({ ...changedCondition, dimensions: { method: 'estimated', lengthM: 12 } }) })).status, 409);
+      const races = await Promise.all(['closed', 'unknown'].map(access => send(target + '/updates', author.token,
+        { ...changed, requestId: randomUUID(), revision: current.revision, condition: JSON.stringify({ ...changedCondition, access }) })));
+      assert.deepEqual(races.map(r => r.status).sort(), [201, 409]);
+      current = await nativeFetch(base + target, { headers: { Authorization: 'Bearer ' + author.token } }).then(r => r.json());
+      assert.deepEqual(current.condition, current.updates.at(-1).condition);
+      const persisted = await db.collection<any>('citizen_reports').findOne({ _id: current.id });
+      assert.deepEqual(persisted.condition, persisted.updates.at(-1).condition);
+      const time = current.condition.observedAt;
+      for (const visibility of ['withdrawn', 'public']) {
+        response = await patch(target + '/publication', { requestId: randomUUID(), revision: current.revision, visibility, nameConsent: false }, author.token);
+        assert.equal(response.status, 200); current = await response.json();
+        assert.equal(current.condition.observedAt, time);
+        assert.deepEqual(current.updates[0].condition, canonical);
+      }
+      const clearing = { ...observation, requestId: randomUUID(), revision: current.revision, condition: 'null' };
+      response = await send(target + '/updates', author.token, clearing);
+      assert.equal(response.status, 201); current = await response.json();
+      assert.equal(current.condition, null); assert.equal(current.updates.at(-1).condition, null);
+      assert.equal((await send(target + '/updates', author.token, clearing)).status, 200);
+      const { condition: __, ...missing } = clearing;
+      assert.equal((await send(target + '/updates', author.token, missing)).status, 409);
+      const publicRow = await nativeFetch(base + target).then(r => r.json());
+      assert.equal(publicRow.condition, null);
+      assert.equal(publicRow.updates[0].condition.source, 'reporter');
+      const publicFeed = await nativeFetch(base + '/reports').then(r => r.json());
+      assert.equal(publicFeed.reports.find((row: any) => row.id === current.id).condition, null);
     });
     await t.test('email request limits are enforced in shared storage', async () => {
       for (let i = 0; i < 3; i++) assert.equal((await json('/auth/link', { email: 'limited@example.test' })).status, 202);
@@ -141,6 +330,7 @@ test('community API preserves ownership, persistence and actual observations', a
     });
     await t.test('disconnect never claims writes were saved; reconnect retains reports', async () => {
       await mongoose.disconnect();
+      assert.deepEqual(await nativeFetch(base + '/capabilities').then(r => r.json()), { reports: false, write: false, login: false, reason: 'storage_unavailable', analysis: { available: false, reason: 'model_disabled' } });
       assert.equal((await send('/reports', owner.token, { ...input, requestId: randomUUID() })).status, 503);
       await mongoose.connect(dbUri);
       const restored = await nativeFetch(base + `/reports/${report.id}`).then(r => r.json());

@@ -1,10 +1,7 @@
-/*
-file ini entry point server backend laporjalan-be
-konek mongodb kalo ada uri-nya, kalo gak ada tetep jalan pake in-memory
-Todo:
--> coba konek mongodb dengan timeout pendek
--> listen ke port env (0.0.0.0) buat cloud run
--> handle graceful shutdown
+/* Todo:
+-> initialize database connection or memory fallback
+-> start HTTP listener on configured port (0.0.0.0 for Cloud Run)
+-> handle graceful termination signals
 */
 
 import { initCommunity } from './community/db.js';
@@ -16,7 +13,7 @@ import { ReportModel } from './models/Report.js';
 import { CctvModel } from './models/Cctv.js';
 import { SEED_REPORTS, SEED_CCTV } from './services/seedData.js';
 
-// helper coba konek mongodb dengan timeout cepat --------------------------------------------------------------------------
+// --- Database Initialization --------------------------------------------------
 async function initDatabase() {
   if (!ENV.MONGODB_URI) {
     console.log('[Database] MONGODB_URI tidak diset. Backend berjalan dalam mode in-memory fallback.');
@@ -78,9 +75,9 @@ async function initDatabase() {
     console.log('[Database] Berjalan dengan in-memory fallback untuk pengetesan lokal.');
   }
 }
-// end of helper ------------------------------------------------------------------
+// --- end of Database Initialization -------------------------------------------
 
-// mulai server
+// --- Server Bootstrap ---------------------------------------------------------
 async function startServer() {
   if (ENV.COMMUNITY_REPORTS_ENABLED) {
     if (!ENV.PUBLIC_REPORTS_ONLY || !ENV.MONGODB_URI) throw new Error('Community configuration missing');
@@ -111,3 +108,4 @@ async function startServer() {
 }
 
 startServer().catch(() => { console.error('[Server] Configuration or database unavailable'); process.exit(1); });
+// --- end of Server Bootstrap --------------------------------------------------

@@ -1,14 +1,12 @@
-/*
-file ini skema mongoose buat tabel laporan kerusakan jalan di mongodb
-nyimpen id laporan, jenis jalan, kedalaman cm, foto, sama status penanganan dinas
-Todo:
--> definisikan schema mongoose buat collection reports
--> kasih index geospatial di lat dan lng biar query spasial cepet
+/* Todo:
+-> define Mongoose schema for legacy damage reports collection
+-> index coordinates and report identifiers
 */
 
 import mongoose, { Schema, Document } from 'mongoose';
 import { IDamageReport } from './types.js';
 
+// --- Report Schema ------------------------------------------------------------
 export interface ReportDocument extends Omit<IDamageReport, 'id'>, Document {
   reportId: string;
 }
@@ -62,3 +60,4 @@ const ReportSchema = new Schema<ReportDocument>(
 );
 
 export const ReportModel = mongoose.model<ReportDocument>('Report', ReportSchema);
+// --- end of Report Schema -----------------------------------------------------

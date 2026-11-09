@@ -1,9 +1,5 @@
-/*
-file ini controller buat urus data kamera cctv lalu lintas
-ngembaliin list kamera, sudut hadap kerucut fov, sama jarak jangkauan
-Todo:
--> endpoint get list cctv
--> cari cctv terdekat dari titik gps laporan
+/* Todo:
+-> handle CCTV camera query and field-of-view telemetry
 */
 
 import { Request, Response } from 'express';
@@ -14,11 +10,11 @@ import { SEED_CCTV } from '../services/seedData.js';
 
 let memoryCctv: ICctvCamera[] = [...SEED_CCTV];
 
+// --- CCTV Handlers ------------------------------------------------------------
 function isDbConnected(): boolean {
   return mongoose.connection.readyState === 1;
 }
 
-// GET /api/cctv - ambil daftar semua kamera cctv
 export async function getCctvList(req: Request, res: Response) {
   try {
     if (isDbConnected()) {
@@ -46,3 +42,4 @@ export async function getCctvList(req: Request, res: Response) {
     return res.status(500).json({ success: false, message: err.message || 'Gagal memuat CCTV' });
   }
 }
+// --- end of CCTV Handlers -----------------------------------------------------

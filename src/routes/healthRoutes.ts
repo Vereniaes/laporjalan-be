@@ -1,14 +1,13 @@
-/*
-file ini router express buat health check cloud run
-google cloud run butuh status 200 ok biar container dianggap sehat
-Todo:
--> endpoint GET /health
+/* Todo:
+-> handle service liveness probe for Cloud Run
+-> report operational mode and database status
 */
 
 import { Router } from 'express';
 import mongoose from 'mongoose';
 import { ENV } from '../config/env.js';
 
+// --- Health Route -------------------------------------------------------------
 const router = Router();
 
 router.get('/', (req, res) => {
@@ -25,3 +24,4 @@ router.get('/', (req, res) => {
 });
 
 export default router;
+// --- end of Health Route ------------------------------------------------------

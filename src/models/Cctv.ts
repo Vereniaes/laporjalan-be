@@ -1,13 +1,11 @@
-/*
-file ini skema mongoose buat kamera cctv pengawas jalan raya di mongodb
-nyimpen posisi gps, sudut hadap kamera, lebar fov, sama link live snapshot
-Todo:
--> definisikan schema mongoose buat collection cctvs
+/* Todo:
+-> define Mongoose schema for CCTV cameras and field-of-view telemetry
 */
 
 import mongoose, { Schema, Document } from 'mongoose';
 import { ICctvCamera } from './types.js';
 
+// --- CCTV Schema --------------------------------------------------------------
 export interface CctvDocument extends Omit<ICctvCamera, 'id'>, Document {
   cctvId: string;
 }
@@ -32,3 +30,4 @@ const CctvSchema = new Schema<CctvDocument>(
 );
 
 export const CctvModel = mongoose.model<CctvDocument>('Cctv', CctvSchema);
+// --- end of CCTV Schema -------------------------------------------------------

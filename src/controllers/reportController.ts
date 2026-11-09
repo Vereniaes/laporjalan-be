@@ -1,10 +1,7 @@
-/*
-file ini controller buat urus api laporan kerusakan jalan
-bisa get list, submit laporan baru + upload foto, sama update status perbaikan dinas
-Todo:
--> dual-mode: baca dari mongodb kalo ada, kalo belum ada pake in-memory
--> hitung skor up bina marga otomatis
--> routing yuridis jalan nasional vs provinsi vs kota
+/* Todo:
+-> handle CRUD operations for damage reports
+-> compute Bina Marga priority score (UP score)
+-> route juridical road authority based on coordinate and road type
 */
 
 import { Request, Response } from 'express';
@@ -14,18 +11,17 @@ import { IDamageReport, JurisdictionType } from '../models/types.js';
 import { SEED_REPORTS } from '../services/seedData.js';
 import { saveUploadedFile } from '../services/storage.js';
 
-// data fallback in-memory jika mongodb belum tersambung
 let memoryReports: IDamageReport[] = [...SEED_REPORTS];
 
-// helper cek apakah mongodb aktif --------------------------------------------------------------------------
+// --- Database and Scoring Helpers ---------------------------------------------
 function isDbConnected(): boolean {
   return mongoose.connection.readyState === 1;
 }
-// end of helper ------------------------------------------------------------------
 
-// helper hitung skor urutan prioritas bina marga --------------------------------------------------------------------------
-// input param : kedalaman cm, tingkat keparahan, jenis kerusakan
-// output : skor angka 1 - 10
+// Purpose : Calculate Bina Marga priority score (1 - 10)
+// Input   : depthCm (number), severity (string), type (string)
+// Output  : number (clamped 1.0 - 10.0)
+// Why/Note: Formula weights depth > 5cm and pothole/trench types higher for immediate patching
 function calculateUpScore(depthCm: number, severity: string, type: string): number {
   let score = 4.0;
   if (severity === 'berat') score += 4.0;
@@ -36,7 +32,9 @@ function calculateUpScore(depthCm: number, severity: string, type: string): numb
 
   return Math.min(10.0, Math.round(score * 10) / 10);
 }
-// end of helper ------------------------------------------------------------------
+// --- end of Database and Scoring Helpers ---------------------------------------
+
+// --- Report Handlers ----------------------------------------------------------
 
 // GET /api/reports - ambil semua laporan jalan
 export async function getReports(req: Request, res: Response) {
@@ -229,3 +227,4 @@ export async function updateReportStatus(req: Request, res: Response) {
     return res.status(500).json({ success: false, message: err.message || 'Gagal memperbarui status' });
   }
 }
+// --- end of Report Handlers ---------------------------------------------------

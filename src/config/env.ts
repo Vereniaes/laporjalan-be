@@ -1,14 +1,12 @@
-/*
-file ini buat baca config env biar gampang
-kalo di cloud run otomatis baca PORT 8080, kalo di lokal pake 5000
-Todo:
--> parse port, mongodb uri, sama gcs bucket
--> kasih default value biar gak crash
+/* Todo:
+-> parse environment configuration with fallback defaults
+-> expose typed configuration object for backend runtime
 */
 
 import dotenv from 'dotenv';
 dotenv.config();
 
+// --- Environment Variables ----------------------------------------------------
 export const ENV = {
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 5000,
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -23,3 +21,4 @@ export const ENV = {
   CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
   GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY || ''
 };
+// --- end of Environment Variables ---------------------------------------------

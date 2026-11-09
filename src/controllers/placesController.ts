@@ -1,10 +1,6 @@
-/*
-file ini controller buat proxy pencarian alamat jalan indonesia (google maps places)
-kalo ada GOOGLE_MAPS_API_KEY di .env pake google places api resmi
-kalo belum diset, otomatis fallback ke openstreetmap nominatim indonesia biar gak error
-Todo:
--> endpoint autocomplete pencarian jalan
--> endpoint get koordinat lat lng lokasi terpilih
+/* Todo:
+-> proxy Google Places autocomplete and details queries
+-> fallback to OpenStreetMap Nominatim for offline or keyless operation
 */
 
 import { Request, Response } from 'express';
@@ -18,7 +14,7 @@ interface PlaceSuggestion {
   lng?: number;
 }
 
-// GET /api/places/autocomplete?input=...
+// --- Places Proxy Handlers ----------------------------------------------------
 export async function searchPlaces(req: Request, res: Response) {
   try {
     const input = (req.query.input as string || '').trim();
@@ -106,3 +102,4 @@ export async function getPlaceDetails(req: Request, res: Response) {
     return res.status(500).json({ success: false, message: err.message || 'Gagal mengambil detail tempat' });
   }
 }
+// --- end of Places Proxy Handlers ---------------------------------------------

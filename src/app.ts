@@ -1,10 +1,6 @@
-/*
-file ini inisialisasi aplikasi express
-pasang middleware cors, parser json, serve folder uploads, sama mount routes
-Todo:
--> konfigurasi middleware cors dan body parser
--> serve folder /uploads secara statis
--> pasang routes api dan error handler
+/* Todo:
+-> configure Express middlewares (CORS, body parser, static uploads)
+-> mount API routes, documentation index, and global error handlers
 */
 
 import express, { Request, Response, NextFunction } from 'express';
@@ -19,9 +15,9 @@ import placesRoutes from './routes/placesRoutes.js';
 import communityRoutes from './community/index.js';
 import publicReportRoutes from './routes/publicReportRoutes.js';
 
+// --- Express Application ------------------------------------------------------
 export const app = express();
 
-// middleware dasar
 app.use(cors({ origin: ENV.CORS_ORIGIN }));
 app.use('/api/community', communityRoutes);
 app.use(express.json({ limit: '15mb' }));
@@ -60,7 +56,6 @@ app.use((req: Request, res: Response) => {
   res.status(404).json({ success: false, message: 'Endpoint tidak ditemukan' });
 });
 
-// global error handler
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error('[App Error]', err);
   res.status(err.status || 500).json({
@@ -68,3 +63,4 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     message: err.message || 'Terjadi kesalahan internal server'
   });
 });
+// --- end of Express Application -----------------------------------------------

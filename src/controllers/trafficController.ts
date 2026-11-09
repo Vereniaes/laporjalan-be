@@ -1,8 +1,5 @@
-/*
-file ini controller buat arus kemacetan jalan real-time
-ngembaliin segmen koordinat jalan thamrin sudirman sama status kecepatan kmh
-Todo:
--> endpoint get list segmen arus lalu lintas
+/* Todo:
+-> handle traffic speed and congestion segment queries
 */
 
 import { Request, Response } from 'express';
@@ -11,7 +8,7 @@ import { SEED_TRAFFIC } from '../services/seedData.js';
 
 let memoryTraffic: ITrafficSegment[] = [...SEED_TRAFFIC];
 
-// GET /api/traffic - ambil data segmen arus kemacetan
+// --- Traffic Handlers ---------------------------------------------------------
 export async function getTrafficSegments(req: Request, res: Response) {
   try {
     return res.json({
@@ -23,3 +20,4 @@ export async function getTrafficSegments(req: Request, res: Response) {
     return res.status(500).json({ success: false, message: err.message || 'Gagal memuat data macet' });
   }
 }
+// --- end of Traffic Handlers --------------------------------------------------

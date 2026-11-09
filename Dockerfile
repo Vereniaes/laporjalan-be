@@ -19,7 +19,11 @@ ENV NODE_ENV=production
 ENV PORT=8080
 
 COPY package*.json ./
-RUN npm ci --only=production
+RUN alpine_version="$(cut -d. -f1,2 /etc/alpine-release)" \
+    && apk --no-cache --timeout 10 --repositories-file /dev/null \
+       -X "https://dl-5.alpinelinux.org/alpine/v${alpine_version}/main" \
+       -X "https://dl-5.alpinelinux.org/alpine/v${alpine_version}/community" add ffmpeg \
+    && npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 

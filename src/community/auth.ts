@@ -5,16 +5,18 @@ Todo:
 import { Router, type Request } from 'express';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { ENV } from '../config/env.js';
-import { database, field, hash, InputError, limit, route } from './db.js';
+import { database, displayName, field, hash, InputError, limit, route, uuid } from './db.js';
 
-type Account = { _id: string; email: string };
-type LoginLink = { _id: string; email: string; expiresAt: Date };
+type Account = { _id: string; email: string; displayName?: string };
+type LoginLink = { _id: string; email: string; expiresAt: Date; returnTo?: string };
 type Session = { _id: string; accountId: string; expiresAt: Date };
+const privateUser = (account: Account) => ({ id: account._id, email: account.email, ...(account.displayName ? { displayName: account.displayName } : {}) });
+const bearer = (req: Request) => /^Bearer ([\w-]{43})$/.exec(req.get('Authorization') ?? '')?.[1];
 const secret = () => randomBytes(32).toString('base64url');
 const validToken = (value: unknown): value is string => typeof value === 'string' && /^[\w-]{43}$/.test(value);
 
 export async function currentAccount(req: Request) {
-  const token = req.get('Authorization')?.replace(/^Bearer /, '');
+  const token = bearer(req);
   if (!validToken(token)) throw new InputError(401, 'Silakan masuk melalui email.');
   const session = await database().collection<Session>('citizen_sessions').findOne({ _id: hash(token), expiresAt: { $gt: new Date() } });
   const account = session && await database().collection<Account>('citizen_accounts').findOne({ _id: session.accountId });
@@ -36,6 +38,8 @@ export const authRoutes = Router();
 authRoutes.post('/link', route(async (req, res) => {
   const email = field(req.body.email, 3, 254, 'Email').toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new InputError(400, 'Email tidak valid.');
+  const returnTo = req.body.returnTo ?? 'mine';
+  if (!['new', 'mine'].includes(returnTo) && !uuid(returnTo)) throw new InputError(400, 'Tujuan masuk tidak valid.');
   const origin = appOrigin();
   if (!ENV.RESEND_API_KEY || !ENV.EMAIL_FROM) throw new InputError(503, 'Layanan email belum dikonfigurasi.');
   await limit('email', email, 3, 15 * 60_000);
@@ -43,7 +47,7 @@ authRoutes.post('/link', route(async (req, res) => {
   const token = secret();
   const links = database().collection<LoginLink>('citizen_links');
   const _id = hash(token);
-  await links.insertOne({ _id, email, expiresAt: new Date(Date.now() + 15 * 60_000) });
+  await links.insertOne({ _id, email, returnTo, expiresAt: new Date(Date.now() + 15 * 60_000) });
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST', signal: AbortSignal.timeout(10_000),
@@ -76,15 +80,22 @@ authRoutes.post('/exchange', route(async (req, res) => {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000);
   await database().collection<Session>('citizen_sessions').insertOne({ _id: hash(token), accountId: account._id, expiresAt });
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ token, expiresAt, user: { id: account._id, email: account.email } });
+  res.json({ token, expiresAt, user: privateUser(account), returnTo: link.returnTo ?? 'mine' });
 }));
 authRoutes.get('/session', route(async (req, res) => {
   const account = await currentAccount(req);
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ user: { id: account._id, email: account.email } });
+  res.json({ user: privateUser(account) });
+}));
+authRoutes.patch('/profile', route(async (req, res) => {
+  const account = await currentAccount(req);
+  const name = displayName(req.body.displayName);
+  await database().collection<Account>('citizen_accounts').updateOne({ _id: account._id },
+    name ? { $set: { displayName: name } } : { $unset: { displayName: '' } });
+  res.json({ user: privateUser({ ...account, displayName: name }) });
 }));
 authRoutes.post('/logout', route(async (req, res) => {
-  const token = req.get('Authorization')?.replace(/^Bearer /, '');
+  const token = bearer(req);
   if (validToken(token)) await database().collection<Session>('citizen_sessions').deleteOne({ _id: hash(token) });
   res.status(204).end();
 }));

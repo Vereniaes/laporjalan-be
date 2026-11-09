@@ -1,11 +1,9 @@
-/*
-file ini isinya definisi types buat data backend
-biar format laporan kerusakan sama kamera cctv konsisten sama frontend
-Todo:
--> bikin types jenis kerusakan, tingkat keparahan, status dinas
--> samain tipe data koordinat lat lng
+/* Todo:
+-> define domain model types for damage reports, CCTV, and traffic
+-> ensure type parity between backend and frontend contracts
 */
 
+// --- Domain Type Definitions --------------------------------------------------
 export type DamageType = 'pothole' | 'crack' | 'trench' | 'subsidence';
 export type DamageSeverity = 'ringan' | 'sedang' | 'berat';
 export type JurisdictionType = 
@@ -56,3 +54,4 @@ export interface ITrafficSegment {
   speedKmh: number;
   coordinates: [number, number][];
 }
+// --- end of Domain Type Definitions -------------------------------------------

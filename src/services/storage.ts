@@ -1,10 +1,6 @@
-/*
-file ini buat adapter upload foto jalan ke google cloud storage (gcs)
-kalo gcs bucket belum diisi di env, otomatis fallback simpen ke folder /uploads lokal
-Todo:
--> handle upload file via multer
--> kirim stream ke gcs kalo ada kredensial gcp
--> fallback tulis berkas ke disk lokal kalo testing offline
+/* Todo:
+-> handle multipart file upload storage
+-> upload buffer to Google Cloud Storage or fallback to local disk
 */
 
 import fs from 'fs';
@@ -13,7 +9,7 @@ import multer from 'multer';
 import { Storage } from '@google-cloud/storage';
 import { ENV } from '../config/env.js';
 
-// inisialisasi storage client gcp jika bucket diset
+// --- Storage Adapter ----------------------------------------------------------
 let gcsStorage: Storage | null = null;
 if (ENV.GCS_BUCKET_NAME) {
   try {
@@ -25,26 +21,24 @@ if (ENV.GCS_BUCKET_NAME) {
   }
 }
 
-// pastikan folder uploads lokal ada
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-// multer pake memory storage biar buffer gampang dipindah ke gcs atau disk
 export const uploadMiddleware = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 } // limit 10MB
+  limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// helper simpan buffer foto ke storage --------------------------------------------------------------------------
-// input param : buffer file, nama file asli, mimetype
-// output : public url string buat disimpan di database
+// Purpose : Save uploaded photo buffer to GCS bucket or local uploads directory
+// Input   : file (Express.Multer.File)
+// Output  : Promise<string> (public URL or relative path)
+// Why/Note: Falls back to local disk if GCS bucket is unreachable or unconfigured
 export async function saveUploadedFile(file: Express.Multer.File): Promise<string> {
   const ext = path.extname(file.originalname) || '.jpg';
   const filename = `road-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`;
 
-  // 1. jika ada gcs bucket, upload ke gcs
   if (gcsStorage && ENV.GCS_BUCKET_NAME) {
     try {
       const bucket = gcsStorage.bucket(ENV.GCS_BUCKET_NAME);
@@ -60,9 +54,8 @@ export async function saveUploadedFile(file: Express.Multer.File): Promise<strin
     }
   }
 
-  // 2. fallback simpan ke disk lokal
   const localFilePath = path.join(UPLOADS_DIR, filename);
   fs.writeFileSync(localFilePath, file.buffer);
   return `/uploads/${filename}`;
 }
-// end of helper ------------------------------------------------------------------
+// --- end of Storage Adapter ---------------------------------------------------

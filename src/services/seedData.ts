@@ -1,12 +1,10 @@
-/*
-file ini isinya data seed awal kerusakan jalan, cctv, sama jalur macet
-dipake buat isi mongodb atau buat fallback memory kalo mongodb belum konek
-Todo:
--> siapin dataset awal jalanan thamrin sudirman jakarta
+/* Todo:
+-> provide initial seed dataset for reports, CCTV, and traffic segments
 */
 
 import { IDamageReport, ICctvCamera, ITrafficSegment } from '../models/types.js';
 
+// --- Seed Data ----------------------------------------------------------------
 export const SEED_REPORTS: IDamageReport[] = [
   {
     id: 'rep-001',
@@ -176,3 +174,4 @@ export const SEED_TRAFFIC: ITrafficSegment[] = [
     ]
   }
 ];
+// --- end of Seed Data ---------------------------------------------------------
