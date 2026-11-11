@@ -53,14 +53,19 @@ test('community API preserves ownership, persistence and actual observations', a
     const exchange = await json('/auth/exchange', { token: link }); assert.equal(exchange.status, 200);
     return { ...(await exchange.json()), link };
   }
-  const send = (path: string, token: string, values: Record<string, unknown>, media?: { mime: string; bytes: Buffer }) => {
+  // a new report needs a photo/video (owner, 10 Nov): creation sends a 1x1 PNG unless the test passes its own media or null
+  const pixel = { mime: 'image/png', bytes: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64') };
+  // every stored file belongs to a report entry (each new report now carries at least one)
+  const referencedMedia = async () => (await db.collection<any>('citizen_reports').find().toArray()).flatMap(row => row.updates.flatMap((entry: any) => entry.media ?? [])).length;
+  const send = (path: string, token: string, values: Record<string, unknown>, media: { mime: string; bytes: Buffer } | null | undefined = path === '/reports' ? pixel : undefined) => {
     const body = new FormData();
-    Object.entries(values).forEach(([key, value]) => body.set(key, String(value)));
+    Object.entries(values).forEach(([key, value]) => { if (value !== undefined) body.set(key, String(value)); });
     if (media) body.set('media', new Blob([new Uint8Array(media.bytes)], { type: media.mime }), 'evidence');
     return nativeFetch(base + path, { method: 'POST', headers: { Origin: process.env.APP_ORIGIN!, Authorization: `Bearer ${token}` }, body });
   };
   const input = { requestId: randomUUID(), category: 'road', title: 'Isolated test report', description: 'Synthetic data for the isolated test database only.',
-    lng: 106.84, lat: -6.20, address: 'Test location', publicConsent: true };
+    lng: 106.84, lat: -6.20, address: 'Test location', publicConsent: true,
+    condition: JSON.stringify({ kind: 'pothole', observedAt: '2026-10-28T09:00:00.000Z', locationConfirmed: true, source: 'reporter', geometry: { type: 'Point', coordinates: [106.84, -6.2] } }) };
   let owner: any, stranger: any, report: any;
   try {
     await t.test('empty database returns empty, never seed data', async () => {
@@ -114,12 +119,24 @@ test('community API preserves ownership, persistence and actual observations', a
       assert.notEqual(session.token, account.token); assert.equal(session.user.id, account.user.id);
       const created2 = await send('/reports', session.token, { ...input, requestId: randomUUID() });
       assert.equal(created2.status, 201);
-      await db.collection('citizen_reports').deleteOne({ _id: (await created2.json()).id });
+      const removed = await created2.json(), files = removed.media.map((media: { id: string }) => new mongoose.mongo.ObjectId(media.id));
+      await db.collection('citizen_reports').deleteOne({ _id: removed.id }); // and its photo, so later counts start clean
+      await db.collection('citizen_media.files').deleteMany({ _id: { $in: files } }); await db.collection('citizen_media.chunks').deleteMany({ files_id: { $in: files } });
     });
     await t.test('invalid location, consent, forged category and disguised media are rejected', async () => {
-      for (const override of [{ lng: 999 }, { lat: '' }, { category: '__proto__' }, { publicConsent: false }, { title: '' }]) {
-        assert.equal((await send('/reports', owner.token, { ...input, ...override })).status, 400);
+      for (const override of [{ lng: 999 }, { lat: '' }, { category: '__proto__' }, { publicConsent: false }, { title: '' }, { address: '' }, { condition: undefined }, { condition: 'null' }]) {
+        assert.equal((await send('/reports', owner.token, { ...input, ...override })).status, 400, JSON.stringify(override));
       }
+      // anywhere in Indonesia (owner, 10 Nov), not only Jakarta; outside the country is refused
+      const surabaya = { ...input, requestId: randomUUID(), lng: 112.7521, lat: -7.2575, condition: JSON.stringify({ ...JSON.parse(input.condition), geometry: { type: 'Point', coordinates: [112.7521, -7.2575] } }) };
+      const outside = await send('/reports', owner.token, surabaya);
+      assert.equal(outside.status, 201);
+      const kept = await outside.json(), files = kept.media.map((media: { id: string }) => new mongoose.mongo.ObjectId(media.id));
+      await db.collection('citizen_reports').deleteOne({ _id: kept.id }); await db.collection('citizen_media.files').deleteMany({ _id: { $in: files } }); await db.collection('citizen_media.chunks').deleteMany({ files_id: { $in: files } });
+      assert.equal((await send('/reports', owner.token, { ...surabaya, requestId: randomUUID(), lng: 151.2, lat: -33.9 })).status, 400);
+      // every new report is complete (owner, 10 Nov): no photo/video, no report
+      const bare = await send('/reports', owner.token, { ...input, requestId: randomUUID() }, null);
+      assert.equal(bare.status, 400); assert.equal((await bare.json()).message, 'Tambahkan minimal satu foto atau video.');
       assert.equal((await send('/reports', owner.token, input, { mime: 'image/png', bytes: Buffer.from('<svg><script>invalid</script></svg>') })).status, 400);
       assert.equal(await db.collection('citizen_reports').countDocuments(), 0);
     });
@@ -167,7 +184,7 @@ test('community API preserves ownership, persistence and actual observations', a
       assert.equal(partial.status, 206); assert.equal((await partial.arrayBuffer()).byteLength, 10);
       assert.equal((await nativeFetch(base + path, { headers: { Range: 'bytes=99999-' } })).status, 416);
       assert.equal((await nativeFetch(base + `/reports/${report.id}/media/${withMedia.media[0].id}`)).status, 404);
-      assert.equal(await db.collection('citizen_media.files').countDocuments(), 1);
+      assert.equal(await db.collection('citizen_media.files').countDocuments(), await referencedMedia());
       const storedId = new mongoose.mongo.ObjectId(withMedia.media[0].id);
       await db.collection('citizen_media.files').updateOne({ _id: storedId }, { $unset: { 'metadata.processedVersion': '' } });
       assert.equal((await nativeFetch(base + path)).status, 503);
@@ -260,7 +277,7 @@ test('community API preserves ownership, persistence and actual observations', a
       const privateRow = await db.collection<any>('citizen_reports').findOne({ _id: named.id });
       assert.equal(privateRow.withdrawnMediaIds.length, 1);
       assert.equal(privateRow.publicationAudit.length, 4);
-      assert.equal(await db.collection('citizen_media.files').countDocuments(), 2);
+      assert.equal(await db.collection('citizen_media.files').countDocuments(), await referencedMedia()); // withdrawn files stay stored, private
       const publicText = await nativeFetch(base + '/reports/' + named.id).then(r => r.text());
       for (const secret of ['consentAudit', 'nameConsent', 'publicationAudit', 'withdrawnMediaIds', 'fingerprint', owner.user.id, owner.user.email]) assert.equal(publicText.includes(secret), false);
       await db.collection<any>('citizen_reports').updateOne({ _id: named.id }, { $set: { visibility: 'hidden' } });
@@ -287,7 +304,7 @@ test('community API preserves ownership, persistence and actual observations', a
 
     await t.test('condition snapshots persist atomically, distinguish omission/clear and never refresh from publication', async () => {
       const author = await login('condition-owner@example.test');
-      assert.equal((await nativeFetch(base + '/reports/' + report.id).then(r => r.json())).condition, undefined);
+      assert.equal((await nativeFetch(base + '/reports/' + report.id).then(r => r.json())).condition.kind, 'pothole'); // given at creation
       const initialCondition = { kind: 'closure', observedAt: new Date(Date.now() - 25 * 60 * 60_000).toISOString(), locationConfirmed: true,
         source: 'government', access: 'closed', geometry: { type: 'LineString', coordinates: [[106.84, -6.2], [106.8401, -6.2001]] },
         dimensions: { method: 'measured', tool: 'meteran', lengthM: 10, widthM: 0.52, depthM: 0.075 } };
@@ -306,7 +323,7 @@ test('community API preserves ownership, persistence and actual observations', a
       assert.equal((await send('/reports', author.token, { ...creation, condition: JSON.stringify(reordered) })).status, 200);
       assert.equal((await send('/reports', author.token, { ...creation, condition: JSON.stringify({ ...initialCondition, access: 'partial' }) })).status, 409);
       const { condition: _, ...withoutCondition } = creation;
-      assert.equal((await send('/reports', author.token, withoutCondition)).status, 409);
+      assert.equal((await send('/reports', author.token, withoutCondition)).status, 400); // a condition is required before the retry check
       const observation = { requestId: randomUUID(), revision: current.revision, status: 'unchanged', note: 'A note preserves the existing observed condition.', publicConsent: true };
       assert.equal((await send(target + '/updates', stranger.token, { ...observation, condition: 'null' })).status, 403);
       response = await send(target + '/updates', author.token, observation);

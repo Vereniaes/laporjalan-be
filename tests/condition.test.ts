@@ -51,7 +51,7 @@ test('dimensions keep units and unknowns explicit without scalar coercion', () =
   assert.throws(() => conditionInput('{"kind":"pothole","observedAt":"2026-01-01T00:00:00Z","locationConfirmed":true,"dimensions":{"method":"estimated","widthM":1e400}}', 'road', anchor), InputError);
 });
 test('geometry rejects invalid numbers, out-of-envelope points and unsupported shapes', () => {
-  for (const coordinates of [[null, -6.2], ['106.8', -6.2], [106.8, -6.2, 0], [106.2, -6.2], [106.8, -6.6], []]) {
+  for (const coordinates of [[null, -6.2], ['106.8', -6.2], [106.8, -6.2, 0], [151.2, -33.9], [106.8, 7.5], []]) {
     bad({ ...base, geometry: { type: 'Point', coordinates } });
   }
   for (const geometry of [null, {}, { type: 'MultiPoint', coordinates: [point, east] },

@@ -38,12 +38,15 @@ test('the map reads imported reports from the database and falls back to the liv
       unit: 'SUDIN SDA', area: { village: 'CAKUNG TIMUR', district: 'CAKUNG', city: 'JAKARTA TIMUR' },
       history: [{ at: new Date('2026-11-03T05:00:00Z'), status: 'Disposisi', unit: 'SUDIN SDA', role: 'skpd', note: 'Mohon ditindaklanjuti' }], importedAt: new Date() });
     await db.collection<any>('imported_meta').insertOne({ _id: 'crm', importedAt: new Date('2026-11-10T00:00:00Z'), dateStart: '2026-10-12', dateEnd: '2026-11-10' });
+    // a second source (owner, 11 Nov: beyond Jakarta): the range covers both
+    await db.collection<any>('imported_meta').insertOne({ _id: 'samarinda', importedAt: new Date('2026-11-11T00:00:00Z'), dateStart: '2026-10-01', dateEnd: '2026-11-11' });
 
     await new Promise(resolve => setTimeout(resolve, 10));
     const snapshot = await nativeFetch(base).then(r => r.json());
     assert.equal(snapshot.reports.length, 1);
     assert.deepEqual(snapshot.reports[0], { id, code: 'LJ-TEST2345', lat: -6.2, lng: 106.9, category: 'drain', sourceCategory: 'Tutup Saluran',
       createdAt: '2026-11-03T00:00:00.000Z', sourceStatus: 'Disposisi' });
+    assert.deepEqual([snapshot.source.dateStart, snapshot.source.dateEnd, snapshot.source.retrievedAt], ['2026-10-01', '2026-11-11', '2026-11-11T00:00:00.000Z']);
     assert.equal(snapshot.source.url, ''); assert.equal(JSON.stringify(snapshot).includes('crm.jakarta'), false);
 
     const detail = await nativeFetch(`${base}/${id}`).then(r => r.json());

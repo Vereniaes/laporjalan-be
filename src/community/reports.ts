@@ -5,7 +5,7 @@ Todo:
 import { Router } from 'express';
 import { createHash } from 'node:crypto';
 import { displayName, field, InputError, limit, route, uuid } from './db.js';
-import { conditionInput, publicCondition } from './condition.js';
+import { conditionInput, inIndonesia, publicCondition } from './condition.js';
 import { currentAccount } from './auth.js';
 import { removeMedia, saveMedia, serveMedia, upload, validateMedia } from './media.js';
 import { categories, statuses, reports, published, visibleMedia, type CitizenReport, type PublicationChange, type Status } from './reportStore.js';
@@ -37,16 +37,18 @@ export function reportInput(body: Record<string, unknown>) {
   if (typeof body.category !== 'string' || !Object.hasOwn(categories, body.category)) throw new InputError(400, 'Kategori tidak valid.');
   const lng = Number(body.lng), lat = Number(body.lat);
   // Service envelope only, not an official administrative boundary.
-  if (body.lng === '' || body.lat === '' || !Number.isFinite(lng) || !Number.isFinite(lat) || lng < 106.3 || lng > 107.1 || lat < -6.5 || lat > -5.2) {
-    throw new InputError(400, 'Pilih lokasi di sekitar Jakarta.');
+  if (body.lng === '' || body.lat === '' || !Number.isFinite(lng) || !Number.isFinite(lat) || !inIndonesia(lng, lat)) {
+    throw new InputError(400, 'Pilih lokasi di wilayah Indonesia.');
   }
   if (body.publicConsent !== 'true') throw new InputError(400, 'Konfirmasi publikasi laporan diperlukan.');
   if (body.nameConsent !== undefined && !['true', 'false'].includes(String(body.nameConsent))) throw new InputError(400, 'Persetujuan nama tidak valid.');
   const name = body.nameConsent === 'true' ? displayName(body.reporterName) : '';
   if (body.nameConsent === 'true' && !name) throw new InputError(400, 'Nama diperlukan untuk publikasi.');
   const condition = conditionInput(body.condition, body.category as keyof typeof categories, [lng, lat]);
+  // every new report is complete (owner, 10 Nov): condition, landmark and at least one photo/video; dimensions stay optional
+  if (!condition) throw new InputError(400, 'Jenis kondisi, waktu pengamatan, dan bentuk lokasi diperlukan.');
   return { ...(condition !== undefined ? { condition } : {}), ...(name ? { reporterName: name, nameConsent: true } : {}), category: body.category as keyof typeof categories, title: field(body.title, 5, 120, 'Judul'),
-    description: field(body.description, 10, 4000, 'Uraian'), address: field(body.address ?? '', 0, 300, 'Patokan'), lng, lat };
+    description: field(body.description, 10, 4000, 'Uraian'), address: field(body.address ?? '', 3, 300, 'Patokan'), lng, lat };
 }
 export function createReportRoutes(analysisPolicy: AnalysisPolicy = disabledAnalysis) {
 validateAnalysisPolicy(analysisPolicy);
@@ -99,6 +101,7 @@ reportRoutes.use((req, res, next) => {
 
 reportRoutes.post('/', route(async (req, res) => {
   const input = reportInput(req.body), files = req.files as Express.Multer.File[] ?? [];
+  if (!files.length) throw new InputError(400, 'Tambahkan minimal satu foto atau video.');
   validateMedia(files);
   const fingerprint = digest(input, files), id = String(req.body.requestId), ownerId = res.locals.accountId;
   const previous = await reports().findOne({ _id: id });

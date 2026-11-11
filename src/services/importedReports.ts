@@ -18,10 +18,16 @@ export async function importedSnapshot() {
   const reports = collection();
   if (!reports) return null;
   if (cache && Date.now() - cache.at < 60_000) return cache.value;
-  const meta = await mongoose.connection.db!.collection<Row>('imported_meta').findOne({ _id: 'crm' });
+  // one meta row per imported source (crm, samarinda, …; owner, 11 Nov: all of Indonesia)
+  const metas = await mongoose.connection.db!.collection<Row>('imported_meta').find({}).toArray();
   const rows = await reports.find({}, { projection: { code: 1, lat: 1, lng: 1, category: 1, subcategory: 1, status: 1, createdAt: 1 } })
     .sort({ createdAt: -1 }).limit(20_000).toArray();
-  if (!meta || !rows.length) return null;
+  if (!metas.length || !rows.length) return null;
+  const meta = {
+    importedAt: Math.max(...metas.map(row => new Date(row.importedAt).getTime())),
+    dateStart: metas.map(row => row.dateStart).filter(Boolean).sort()[0],
+    dateEnd: metas.map(row => row.dateEnd).filter(Boolean).sort().at(-1),
+  };
   const suppressed = await suppressedIds('impor'); // hidden by an admin or marked as a duplicate
   const value = {
     reports: rows.filter(row => !suppressed.has(row._id)).map(row => ({ id: row._id, code: row.code, lat: row.lat, lng: row.lng, category: row.category,

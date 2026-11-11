@@ -3,6 +3,8 @@ Todo:
 -> normalize safe geometry, dimensions and observation time
 */
 import { field, InputError } from './db.js';
+// reports anywhere in Indonesia (owner, 10 Nov: not only Jakarta); a box around the archipelago, land and sea
+export const inIndonesia = (lng: number, lat: number) => lng >= 94.5 && lng <= 141.5 && lat >= -11.5 && lat <= 6.5;
 
 const kinds = {
   road: ['pothole', 'subsidence', 'crack', 'excavation', 'closure', 'other'],
@@ -31,7 +33,7 @@ const epsilon = 1e-14;
 function position(value: unknown): Position {
   if (!Array.isArray(value) || value.length !== 2 ||
     value.some(n => typeof n !== 'number' || !Number.isFinite(n)) ||
-    value[0] < 106.3 || value[0] > 107.1 || value[1] < -6.5 || value[1] > -5.2) invalid('Lokasi kondisi tidak valid.');
+    !inIndonesia(value[0], value[1])) invalid('Lokasi kondisi tidak valid.');
   return [value[0], value[1]];
 }
 function onSegment(a: Position, b: Position, p: Position) {

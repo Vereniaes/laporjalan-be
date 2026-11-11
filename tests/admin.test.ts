@@ -41,8 +41,11 @@ test('admin handling: access, actions and what the public sees', async () => {
       status: 'Menunggu', statusSlug: 'menunggu', unit: 'KELURAHAN CAKUNG TIMUR', area: null, history: [], importedAt: new Date() });
     await db.collection<any>('imported_meta').insertOne({ _id: 'crm', importedAt: new Date(), dateStart: '2026-10-12', dateEnd: '2026-11-10' });
     const form = new FormData();
-    Object.entries({ requestId: randomUUID(), category: 'road', title: 'Laporan warga uji admin', description: 'Isian uji terisolasi untuk admin.', lng: 106.84, lat: -6.2, address: '', publicConsent: true })
+    Object.entries({ requestId: randomUUID(), category: 'road', title: 'Laporan warga uji admin', description: 'Isian uji terisolasi untuk admin.', lng: 106.84, lat: -6.2, address: 'Lokasi uji', publicConsent: true,
+      condition: JSON.stringify({ kind: 'pothole', observedAt: '2026-11-03T00:00:00.000Z', locationConfirmed: true, source: 'reporter', geometry: { type: 'Point', coordinates: [106.84, -6.2] } }) })
       .forEach(([key, value]) => form.set(key, String(value)));
+    // a new report needs a photo or video (owner, 10 Nov)
+    form.set('media', new Blob([new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'))], { type: 'image/png' }), 'bukti.png');
     const warga = await fetch(root + '/community/reports', { method: 'POST', headers: { Origin: process.env.APP_ORIGIN!, Authorization: `Bearer ${citizen.token}` }, body: form }).then(r => r.json());
 
     // access
