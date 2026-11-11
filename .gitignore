@@ -9,21 +9,33 @@ dist/
 # --- Environment files (CRITICAL: Never commit secrets) -----------------------
 .env
 .env.*
+*.env
 !.env.example
+!.env.*.example
 *.local
+*.local.md
 
 # --- Logs & Test Runs ---------------------------------------------------------
 logs/
 *.log
 npm-debug.log*
+coverage/
 
 # --- Uploads & Local Media ----------------------------------------------------
 uploads/
+
+# --- Non-App Workspace & Agent Files ------------------------------------------
+.agents/
+.claude/
+skills-lock.json
+.mcp.json
+docs/
+knowledge/
+tmp/
+scratch/
 
 # --- OS / Editor --------------------------------------------------------------
 .DS_Store
 .vscode/
 .idea/
-docs/
-knowledge/
 # --- end of gitignore ---------------------------------------------------------
