@@ -44,7 +44,7 @@ test('the map reads imported reports from the database and falls back to the liv
     await new Promise(resolve => setTimeout(resolve, 10));
     const snapshot = await nativeFetch(base).then(r => r.json());
     assert.equal(snapshot.reports.length, 1);
-    assert.deepEqual(snapshot.reports[0], { id, code: 'LJ-TEST2345', lat: -6.2, lng: 106.9, category: 'drain', sourceCategory: 'Tutup Saluran',
+    assert.deepEqual(snapshot.reports[0], { id, code: 'LJ-TEST2345', title: 'Saluran air bermasalah di Cakung Timur', lat: -6.2, lng: 106.9, category: 'drain', sourceCategory: 'Tutup Saluran',
       createdAt: '2026-11-03T00:00:00.000Z', sourceStatus: 'Disposisi' });
     assert.deepEqual([snapshot.source.dateStart, snapshot.source.dateEnd, snapshot.source.retrievedAt], ['2026-10-01', '2026-11-11', '2026-11-11T00:00:00.000Z']);
     assert.equal(snapshot.source.url, ''); assert.equal(JSON.stringify(snapshot).includes('crm.jakarta'), false);
@@ -61,4 +61,14 @@ test('the map reads imported reports from the database and falls back to the liv
     await new Promise<void>(resolve => server.close(() => resolve()));
     globalThis.fetch = nativeFetch;
   }
+});
+
+// readable titles for imported reports (owner, 11 Nov: no codes as titles)
+test('imported reports get a title from the category and the street or kelurahan', async () => {
+  const { importedTitle } = await import('../src/services/importedReports.js');
+  assert.equal(importedTitle({ category: 'burning', address: 'QWH6+FJQ, Jl. Cikini Raya (depan halte), RT.8/RW.11, Cikini' }), 'Pembakaran sampah di Jl. Cikini Raya');
+  assert.equal(importedTitle({ category: 'road', address: 'JL. RAYA BOGOR KM 20, Kramat Jati' }), 'Jalan rusak di Jl. Raya Bogor Km 20');
+  assert.equal(importedTitle({ category: 'drain', address: 'Cakung', area: { village: 'CAKUNG TIMUR', district: 'CAKUNG' } }), 'Saluran air bermasalah di Cakung Timur');
+  assert.equal(importedTitle({ category: 'construction', address: '' }), 'Galian atau pembangunan');
+  assert.equal(importedTitle({ category: 'road', address: 'Jl. Pluit Timur Raya No.19, Pluit' }), 'Jalan rusak di Jl. Pluit Timur Raya');
 });

@@ -9,7 +9,7 @@ import { currentAccount } from './auth.js';
 import { categories, reports, statuses } from './reportStore.js';
 import { database, InputError, route, uuid } from './db.js';
 import { ACTION_LABELS, HANDLING_STATUSES, handlings, type Handling, type HandlingAction, type HandlingStatus, type ReportKind } from './handling.js';
-import { invalidateImported } from '../services/importedReports.js';
+import { importedTitle, invalidateImported } from '../services/importedReports.js';
 
 type Row = Record<string, any> & { _id: string };
 const imported = () => database().collection<Row>('imported_reports');
@@ -34,7 +34,7 @@ const note = (value: unknown) => {
 async function queue() {
   const [warga, impor, handled] = await Promise.all([
     reports().find({}, { projection: { title: 1, category: 1, status: 1, createdAt: 1, visibility: 1, address: 1, description: 1 } }).toArray(),
-    imported().find({}, { projection: { code: 1, category: 1, subcategory: 1, status: 1, unit: 1, createdAt: 1, address: 1, description: 1 } }).toArray(),
+    imported().find({}, { projection: { code: 1, category: 1, subcategory: 1, status: 1, unit: 1, createdAt: 1, address: 1, area: 1, description: 1 } }).toArray(),
     handlings()!.find({}).toArray(),
   ]);
   const byId = new Map(handled.map(row => [row._id, row]));
@@ -47,7 +47,7 @@ async function queue() {
   };
   return [
     ...warga.map(row => shape('warga', row as Row, 'LJ-' + row._id, row.title, statuses[row.status] ?? row.status, null)),
-    ...impor.map(row => shape('impor', row, row.code, row.code, row.status, row.unit ?? null)),
+    ...impor.map(row => shape('impor', row, row.code, importedTitle(row), row.status, row.unit ?? null)),
   ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 // --- end of queue ---
@@ -89,7 +89,7 @@ adminRoutes.get('/reports/:kind/:id', route(async (req, res) => {
   if (kind === 'impor') {
     const row = await imported().findOne({ _id: id });
     if (!row) throw new InputError(404, 'Laporan tidak ditemukan.');
-    res.json({ kind, id, code: row.code, title: row.code, category: row.category, subcategory: row.subcategory, sourceStatus: row.status,
+    res.json({ kind, id, code: row.code, title: importedTitle(row), category: row.category, subcategory: row.subcategory, sourceStatus: row.status,
       unit: row.unit ?? null, area: row.area ?? null, description: row.description, address: [row.address, row.addressDetail].filter(Boolean).join(' · '),
       lat: row.lat, lng: row.lng, createdAt: new Date(row.createdAt).toISOString(),
       sourceHistory: (row.history ?? []).map((entry: Row) => ({ at: new Date(entry.at).toISOString(), status: entry.status, unit: entry.unit ?? null, note: entry.note ?? '' })),
